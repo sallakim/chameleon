@@ -22,7 +22,7 @@ def run_forest_run(wave, input_file, sim_dirs, constants=None, growth=False, acu
                    run_sims=True, remove_outliers=False, time_ticks=None, growth_type="transverse",
                    fig_name="sim_results", show_fig=False, v_ticks=(0, 50, 100, 150), p_ticks=(0, 50, 100, 150),
                    segment_lfw=0, segment_rfw=1, segment_sw=2, percentile=0.95, shortening_data=None,
-                   show_hemo=False, show_stretch=False, plot_only_all=False, print_log=None):
+                   show_hemo=False, show_rv_hemo=False, show_stretch=False, plot_only_all=False, print_log=None):
     """Wrapper function to run, analyze, and import model simulations"""
 
     # Specify directory to store simulations in
@@ -72,7 +72,7 @@ def run_forest_run(wave, input_file, sim_dirs, constants=None, growth=False, acu
                          time_ticks=time_ticks, show_fig=show_fig, fig_name=fig_name, only_all=plot_only_all)
     else:
         # Plot model results
-        plot_sims(file_path, fig_dir, x_labels=wave.x_names, fig_name=fig_name, show_fig=show_fig, show_hemo=show_hemo,
+        plot_sims(file_path, fig_dir, x_labels=wave.x_names, fig_name=fig_name, show_fig=show_fig, show_hemo=show_hemo, show_rv_hemo=show_rv_hemo, # salla addition of rv
                   show_stretch=show_stretch, segment_lfw=segment_lfw, segment_rfw=segment_rfw, segment_sw=segment_sw,
                   v_ticks=v_ticks, p_ticks=p_ticks)
 
@@ -497,9 +497,9 @@ def filter_outliers(x, y, m_outlier=None, percentile=0.95, remove=False, sims=No
 
 def plot_sims(sim_dir, exp_dir, x_labels, fig_name="simresults", show_fig=False,
               color_main="#375441", color_space="#bfc4ac", segment_lfw=0, segment_sw=2, segment_rfw=1,
-              acute_key="_acute", file_extension=".hdf5", show_hemo=False, show_stretch=False,
+              acute_key="_acute", file_extension=".hdf5", show_hemo=False, show_rv_hemo=False, show_stretch=False,
               p_ticks=(0, 50, 100, 150, 200), v_ticks=(0, 100, 200, 300), lab_ticks=(0.8, 1.0, 1.2, 1.4),
-              p_label="LV Pressure (mmHg)", v_label="LV Volume (mL)", lab_label="LV Stretch (-)", t_label="Time (s)"):
+              p_label="LV Pressure (mmHg)", v_label="Volume (mL)", lab_label="Stretch (-)", t_label="Time (s)"):
     """Plot predicted model outcome of all simulations in the directory sim_dir and saves plots to exp_dir"""
 
     # Find all simulation results
@@ -509,42 +509,47 @@ def plot_sims(sim_dir, exp_dir, x_labels, fig_name="simresults", show_fig=False,
     has_acute = any(acute_key in x for x in x_labels)
 
     # Load first simulation and parameters to find data dimensions. Has to be equal across all simulations
-    times, volumes, pressures, stretches_lfw, \
-        stretches_sw, stretches_rfw, x_sims = load_sim_data(sims, pars, segment_lfw, segment_sw, segment_rfw)
+    times, volumes, pressures, rv_volumes, rv_pressures, stretches_lfw, \
+        stretches_sw, stretches_rfw, x_sims = load_sim_data(sims, pars, segment_lfw, segment_sw, segment_rfw) # salla addition of RV
 
     if has_acute:
         sims_acute = [sim.split(file_extension)[0] + acute_key + file_extension for sim in sims]
-        times_acute, volumes_acute, pressures_acute, stretches_lfw_acute, stretches_sw_acute, \
+        times_acute, volumes_acute , pressures_acute, rv_volumes_acute, rv_pressures_acute, stretches_lfw_acute, stretches_sw_acute, \
             stretches_rfw_acute, _ = load_sim_data(sims_acute, pars, segment_lfw, segment_sw, segment_rfw)
 
     # Find median simulation
     i_median = get_median_sim(x_sims)
 
+    # Salla Change: added RV hemodynamics
+    # Plot LV and RV hemodynamics
+    fig = plt.figure(figsize=(15, 10), linewidth=1.0)
+    sns.set_theme(style="white", palette=None)
+
+    # Row 1: LV
+    plot_xy(fig, 1, [2, 3], volumes, pressures, v_label, p_label, color_space, color_main, 
+            x_ticks=v_ticks, y_ticks=p_ticks, title="LV PV Loop")
+    plot_xy(fig, 2, [2, 3], times, volumes, t_label, v_label, color_space, color_main,
+            title="LV Volume", x_ticks=(times[0, 0], times[-1, -1]), y_ticks=v_ticks)
+    plot_xy(fig, 3, [2, 3], times, pressures, t_label, p_label, color_space, color_main,
+            title="LV Pressure", x_ticks=(times[0, 0], times[-1, -1]), y_ticks=p_ticks)
+    
+    # Row 2: RV
+    plot_xy(fig, 4, [2, 3], rv_volumes, rv_pressures, v_label, p_label, color_space, color_main, 
+            x_ticks=v_ticks, y_ticks=p_ticks, title="RV PV Loop")
+    plot_xy(fig, 5, [2, 3], times, rv_volumes, t_label, v_label, color_space, color_main,
+            title="RV Volume", x_ticks=(times[0, 0], times[-1, -1]), y_ticks=v_ticks)
+    plot_xy(fig, 6, [2, 3], times, rv_pressures, t_label, p_label, color_space, color_main,
+            title="RV Pressure", x_ticks=(times[0, 0], times[-1, -1]), y_ticks=p_ticks)
+    
+    finish_plots(fig, exp_dir, str(fig_name + "_hemodynamics.pdf"), show_fig=show_fig or show_hemo or show_rv_hemo)
+    # End Salla addition
+
+    # Plot 2: Stretch
     if has_acute:
         plot_shape = [2, 3]
     else:
         plot_shape = [1, 3]
-
-    # Plot 1: LV hemodynamics
-    fig = plt.figure(figsize=(10, 4 + has_acute * 4), linewidth=1.0)
-    sns.set_theme(style="white", palette=None)
-    plot_xy(fig, 1, plot_shape, volumes, pressures, v_label, p_label, color_space, color_main, x_ticks=v_ticks,
-            y_ticks=p_ticks)
-    plot_xy(fig, 2, plot_shape, times, volumes, t_label, v_label, color_space, color_main,
-            title="Baseline", x_ticks=(times[0, 0], times[-1, -1]), y_ticks=v_ticks)
-    plot_xy(fig, 3, plot_shape, times, pressures, t_label, p_label, color_space, color_main,
-            x_ticks=(times[0, 0], times[-1, -1]), y_ticks=p_ticks)
-
-    if has_acute:
-        plot_xy(fig, 4, plot_shape, volumes_acute, pressures_acute, v_label, p_label, color_space, color_main,
-                x_ticks=v_ticks, y_ticks=p_ticks)
-        plot_xy(fig, 5, plot_shape, times_acute, volumes_acute, t_label, v_label, color_space, color_main,
-            x_ticks=(times[0, 0], times_acute[-1, -1]), y_ticks=v_ticks)
-        plot_xy(fig, 6, plot_shape, times_acute, pressures_acute, t_label, p_label, color_space, color_main,
-            x_ticks=(times[0, 0], times_acute[-1, -1]), y_ticks=p_ticks)
-    finish_plots(fig, exp_dir, str(fig_name + "_hemodynamics.pdf"), show_fig=show_fig or show_hemo)
-
-    # Plot 2: Stretch
+    
     fig = plt.figure(figsize=(10, 4 + has_acute * 4), linewidth=1.0)
     plot_xy(fig, 1, plot_shape, times, stretches_lfw, t_label, lab_label, color_space, color_main, y_ticks=lab_ticks,
             title="Left free wall", x_lim=(times[0, 0], times[-1, -1]))
@@ -761,6 +766,8 @@ def load_sim_data(sims, pars, segment_lfw, segment_sw, segment_rfw):
     times = np.zeros((n_sims, n_inc))
     volumes = np.zeros((n_sims, n_inc))
     pressures = np.zeros((n_sims, n_inc))
+    rv_volumes = np.zeros((n_sims, n_inc))  # salla addition
+    rv_pressures = np.zeros((n_sims, n_inc))  # salla
     stretches_lfw = np.zeros((n_sims, n_inc))
     stretches_sw = np.zeros((n_sims, n_inc))
     stretches_rfw = np.zeros((n_sims, n_inc))
@@ -770,20 +777,24 @@ def load_sim_data(sims, pars, segment_lfw, segment_sw, segment_rfw):
         # Baseline
         with h5py.File(sim, "r", locking=False) as f:
             time = f["time"][:] * 1e3
-            volume = f["volumes"][:, 2]
-            pressure = f["pressures"][:, 2]
+            volume = f["volumes"][:, 2] 
+            pressure = f["pressures"][:, 2] 
+            rv_volume = f["volumes"][:, 6] # salla addition, add RV index 6
+            rv_pressure = f["pressures"][:, 6] # salla addition, add RV index 6
             stretch = f["lab_f"][:]
 
         # Store simulated pressures and volumes and model parameters
         times[i_sim, :] = time
         volumes[i_sim, :] = volume
         pressures[i_sim, :] = pressure
+        rv_volumes[i_sim, :] = rv_volume # salla addition
+        rv_pressures[i_sim, :] = rv_pressure #salla addition
         stretches_lfw[i_sim, :] = stretch[:, segment_lfw]
         stretches_sw[i_sim, :] = stretch[:, segment_sw]
         stretches_rfw[i_sim, :] = stretch[:, segment_rfw]
         x_sims[i_sim, :] = np.load(par)
 
-    return times, volumes, pressures, stretches_lfw, stretches_sw, stretches_rfw, x_sims
+    return times, volumes, pressures, rv_volumes, rv_pressures, stretches_lfw, stretches_sw, stretches_rfw, x_sims # salla addition
 
 
 def get_median_sim(x_sims):
